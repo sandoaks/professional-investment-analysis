@@ -1,0 +1,13 @@
+{
+  "slug": "portfolio-builder",
+  "display_name": "Portfolio Builder",
+  "short_description": "Builds a custom multi-asset portfolio from scratch: allocation, specific ETFs, core vs satellite, expected return and drawdown, rebalancing rules, tax placement, a DCA plan, a benchmark and a one-page investment policy statement.",
+  "skill_description": "Designs a custom multi-asset investment portfolio and investment policy statement for the user's situation: exact allocation across stocks, bonds and alternatives; specific ETF/fund tickers per category; core vs satellite labels; expected annual return range and bad-year drawdown from historical data; rebalancing schedule and trigger rules; tax-efficient asset location across 401k/IRA/Roth/taxable; monthly dollar-cost averaging plan; benchmark; and a one-page IPS, with an allocation pie chart. Use when the user asks how to invest a sum, build a portfolio, choose an asset allocation, pick ETFs, or write an investment policy statement.",
+  "starters": [
+    "Build me a portfolio from my investor profile",
+    "I'm 35 with $100k across a 401k and taxable account. Build an allocation",
+    "Design a 3-fund portfolio with a DCA plan for $1,500/month",
+    "Write a one-page investment policy statement for me"
+  ],
+  "capabilities": ["web_search", "code"]
+}

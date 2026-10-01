@@ -1,0 +1,13 @@
+{
+  "slug": "competitive-landscape",
+  "display_name": "Competitive Landscape",
+  "short_description": "A strategy-consulting-style competitive landscape of a sector: top competitors compared on scale, margins, moats, market share, management and R&D, plus sector threats, SWOTs, and a single best pick with catalysts.",
+  "skill_description": "Produces a strategy-consulting-style competitive landscape report for an industry or sector to find the best stock in it: top 5-7 competitors with market-cap comparison, revenue and profit-margin table, moat analysis (brand, cost, network, switching), 3-year market share trends, management quality rating based on capital allocation, innovation pipeline and R&D comparison, biggest sector threats (regulation, disruption, macro), SWOT for the top 2, the single best stock pick with rationale, and 12-month catalysts. Use when the user asks which company is best in a sector, to compare competitors, for an industry analysis, a sector deep dive or 'who wins in X'.",
+  "starters": [
+    "Competitive landscape for the semiconductor equipment sector",
+    "Who's the best stock in US railroads?",
+    "Compare the big cloud providers and pick a winner",
+    "Analyse the GLP-1 / obesity drug market and find the best stock"
+  ],
+  "capabilities": ["web_search", "code"]
+}

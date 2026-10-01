@@ -1,0 +1,13 @@
+{
+  "slug": "stock-screener",
+  "display_name": "Stock Screener",
+  "short_description": "Screens US stocks against your investor profile and returns a ranked top-10 report covering valuation, growth, balance sheet, dividend, moat, risk and price levels.",
+  "skill_description": "Screens US equities against the user's investor profile and returns a top-10 equity research screening report: P/E vs sector, 5-year revenue trend, debt-to-equity, dividend sustainability, moat rating, bull/bear 12-month targets, 1-10 risk rating, entry zones and stop-loss levels, with a summary table. Use when the user asks for stock ideas, a stock screen, 'what should I look at', top picks in a sector, or stocks matching criteria.",
+  "starters": [
+    "Screen for 10 stocks that fit my investor profile",
+    "Find 10 quality large-cap stocks trading below their sector P/E",
+    "Screen healthcare and industrials for moderate-risk growth names",
+    "Find dividend-paying tech stocks with strong moats"
+  ],
+  "capabilities": ["web_search", "code"]
+}

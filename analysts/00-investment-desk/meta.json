@@ -1,0 +1,13 @@
+{
+  "slug": "investment-desk",
+  "display_name": "Investment Desk",
+  "short_description": "Your front desk for stock research. Tell it what you want; it picks the right specialist workflow (screen, DCF, risk, earnings, portfolio, technicals, dividends, competitors, quant, macro) or chains several together.",
+  "skill_description": "Front desk / router for investment research. Triages the user's investing question and runs the right specialist workflow: stock screener, DCF valuation, portfolio risk assessment, earnings preview, portfolio builder, technical analysis, dividend income portfolio, competitive landscape, quant pattern research, or macro impact briefing. Chains several into a pipeline when useful (e.g. idea to screen to competitive check to DCF to technical entry to risk check). Use for broad or ambiguous investing requests such as 'help me research X', 'full workup on a stock', 'what should I do with my portfolio', or when the user asks which analysis to run.",
+  "starters": [
+    "Full workup on a stock I'm considering",
+    "I have $50k to invest. Where do I start?",
+    "Review my portfolio end to end",
+    "Which analysis should I run for my question?"
+  ],
+  "capabilities": ["web_search", "code"]
+}

@@ -1,0 +1,13 @@
+{
+  "slug": "earnings-preview",
+  "display_name": "Earnings Preview",
+  "short_description": "A pre-earnings research brief: beat/miss history, consensus, the metrics that matter, segment trends, guidance, options-implied move, past price reactions, bull/bear scenarios and a buy-before / sell-before / wait call.",
+  "skill_description": "Writes a pre-earnings research brief for a company about to report: last 4 quarters actual vs estimates (beat/miss), consensus revenue and EPS for the upcoming quarter, key metrics the Street is watching, segment revenue trends, last call's management guidance, options-implied earnings move, historical post-earnings price reactions, bull and bear scenarios with price impact, and a positioning stance (buy before / sell before / wait) with a decision summary at the top. Use when the user mentions an upcoming earnings report, earnings date, earnings preview, or asks what to expect from a company's quarter.",
+  "starters": [
+    "Earnings preview for NVDA's next report",
+    "AAPL reports next week. What's priced in?",
+    "Compare the implied move vs historical reactions for NFLX",
+    "Should I hold AMZN through earnings? Here's my position: ..."
+  ],
+  "capabilities": ["web_search", "code"]
+}

@@ -1,0 +1,13 @@
+{
+  "slug": "technical-analysis",
+  "display_name": "Technical Analysis",
+  "short_description": "A full technical analysis report card: multi-timeframe trend, support/resistance, moving averages, RSI/MACD/Bollinger, volume, chart patterns, Fibonacci levels, entry/stop/target, risk-reward and a rating.",
+  "skill_description": "Produces a technical analysis report card and trade-plan summary for a stock: trend on daily/weekly/monthly timeframes, key support and resistance price levels, 50/100/200-day moving averages and crossovers, RSI, MACD and Bollinger Band readings in plain English, volume trend (buyer vs seller strength), chart pattern identification, Fibonacci retracement levels, ideal entry, stop-loss and profit target, risk-to-reward ratio, and a rating from strong buy to strong sell. Best with an uploaded OHLCV price CSV; otherwise uses sourced indicator data. Use when the user asks about a chart, technicals, support/resistance, entry or exit levels, or timing a trade.",
+  "starters": [
+    "Full technical breakdown of TSLA",
+    "Here's 2 years of daily prices for AMD (CSV). Analyse it",
+    "Where are support and resistance for SPY right now?",
+    "I own 100 shares of META at $480. Where should my stop be?"
+  ],
+  "capabilities": ["web_search", "code"]
+}

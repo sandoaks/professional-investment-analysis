@@ -1,0 +1,13 @@
+{
+  "slug": "quant-pattern-research",
+  "display_name": "Quant Pattern Research",
+  "short_description": "A data-driven quant research memo on one stock: seasonality, day-of-week effects, Fed/CPI reactions, insider and institutional flows, short interest, unusual options, earnings drift and sector rotation, with each finding tested for statistical significance.",
+  "skill_description": "Writes a quantitative research memo identifying statistical patterns and anomalies in a single stock: seasonal monthly returns, day-of-week effects, reactions to Fed meetings and CPI releases, insider buying/selling from Form 4 filings, institutional ownership trends from 13F, short interest and squeeze potential, unusual options activity, price behaviour around earnings (pre-run, post-gap drift), sector rotation signals, and a statistical edge summary, with significance testing and data tables. Best with an uploaded daily price CSV. Use when the user asks for seasonality, patterns, anomalies, insider activity, short squeeze potential, smart money flows, or a quantitative edge in a stock.",
+  "starters": [
+    "Quant pattern research on AAPL over the last 10 years",
+    "Is there real seasonality in XOM? Here's my price CSV",
+    "Insider, institutional and short-interest picture for PLTR",
+    "How does JPM trade around FOMC and CPI days?"
+  ],
+  "capabilities": ["web_search", "code"]
+}

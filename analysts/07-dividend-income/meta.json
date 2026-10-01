@@ -1,0 +1,13 @@
+{
+  "slug": "dividend-income-portfolio",
+  "display_name": "Dividend Income Portfolio",
+  "short_description": "Builds a dividend income portfolio of 15–20 stocks with safety scores, growth streaks, payout checks, monthly income and 10-year DRIP projections, sector balance and tax notes, ranked from safest to most aggressive.",
+  "skill_description": "Builds a dividend income portfolio blueprint: 15-20 dividend stocks with tickers and current yield, dividend safety score (1-10), consecutive years of dividend growth, payout ratio analysis flagging unsustainable dividends, monthly income projection for the user's investment amount, sector diversification, 5-year dividend growth estimates, 10-year DRIP compounding projection, tax implications by account type, and a ranked list from safest to most aggressive, with an income projection table. Use when the user wants passive income, dividend stocks, an income portfolio, yield, DRIP or a monthly income target.",
+  "starters": [
+    "Build a dividend portfolio from my investor profile",
+    "I have $250k and want $1,000/month in dividends. What would that take?",
+    "15 dividend growers with safety scores of 8 or higher",
+    "Show the 10-year DRIP projection for $100k in dividend stocks"
+  ],
+  "capabilities": ["web_search", "code"]
+}

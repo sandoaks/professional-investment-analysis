@@ -1,0 +1,13 @@
+{
+  "slug": "macro-impact-briefing",
+  "display_name": "Macro Impact Briefing",
+  "short_description": "An executive macro briefing on how current rates, inflation, GDP, the dollar, jobs, the Fed and global risks affect your holdings, with sector rotation, specific portfolio adjustments and a timeline.",
+  "skill_description": "Writes an executive macro strategy briefing showing how current economic conditions affect the user's portfolio: interest rate environment and growth vs value impact, inflation trend and sector winners/losers, GDP outlook and corporate earnings, US dollar impact on international vs domestic holdings, employment and consumer spending, Federal Reserve policy outlook for 6-12 months, global risks (geopolitics, trade, supply chains), sector rotation based on the economic cycle, specific portfolio adjustments to consider, and a timeline of when factors will hit markets, with an action plan. Use when the user asks how the economy, the Fed, rates, inflation, recession, tariffs or the dollar affects their portfolio or the market.",
+  "starters": [
+    "How does the current macro picture affect the portfolio in my profile?",
+    "I'm worried about a recession. Here are my holdings: ...",
+    "What does the Fed outlook mean for growth vs value right now?",
+    "Where are we in the economic cycle, and which sectors should I favour?"
+  ],
+  "capabilities": ["web_search", "code"]
+}

@@ -1,0 +1,13 @@
+{
+  "slug": "portfolio-risk-assessment",
+  "display_name": "Portfolio Risk Assessment",
+  "short_description": "A complete risk assessment of your current portfolio: correlation, concentration, rates and currency exposure, recession stress test, liquidity, tail risks, hedges and rebalancing, summarised in a heat map.",
+  "skill_description": "Runs a professional risk-management assessment of the user's current portfolio: correlation analysis, sector concentration, geographic and currency exposure, interest-rate sensitivity, recession stress test with estimated drawdown, liquidity risk per holding, single-stock risk and position sizing, tail-risk scenarios with probabilities, hedging strategies for the top 3 risks, and rebalancing with target percentages, plus a heat-map summary table. Use when the user shares holdings and asks how risky their portfolio is, for a stress test, diversification check, concentration review, or hedging ideas.",
+  "starters": [
+    "Run a full risk assessment on the portfolio in my profile",
+    "Stress test my holdings for a 2008-style recession",
+    "How concentrated am I? Here are my holdings: ...",
+    "What are my top 3 risks and how could I hedge them?"
+  ],
+  "capabilities": ["web_search", "code"]
+}

@@ -1,0 +1,13 @@
+{
+  "slug": "dcf-valuation",
+  "display_name": "DCF Valuation",
+  "short_description": "Builds a full discounted cash flow valuation of a stock: 5-year projections, WACC, terminal value two ways, sensitivity tables, reverse DCF and a clear verdict on whether it is undervalued.",
+  "skill_description": "Builds an investment-banking-style DCF valuation memo for a single stock: 5-year revenue projection, operating margin from historical trends, year-by-year unlevered FCF, WACC, terminal value via exit multiple and perpetuity growth, sensitivity table (WACC x growth / exit multiple), reverse DCF, DCF vs market price, and a verdict (undervalued / fairly valued / overvalued) with model-breaking assumptions. Use when the user asks what a stock is worth, for intrinsic value, fair value, a DCF, or whether a stock is over/undervalued. Can output an Excel model.",
+  "starters": [
+    "Run a DCF on MSFT and tell me if it's undervalued",
+    "What is the intrinsic value of COST? Show the sensitivity table",
+    "Reverse DCF: what growth is priced into NVDA?",
+    "Build an Excel DCF model for JNJ"
+  ],
+  "capabilities": ["web_search", "code"]
+}
