@@ -1,0 +1,38 @@
+name: Weekly Portfolio Rebalancing Analysis
+
+on:
+  schedule:
+    # Runs every Monday at 13:00 UTC (8:00 AM EST / 9:00 AM EDT)
+    - cron: '0 13 * * 1'
+  workflow_dispatch: # Allows manual trigger from GitHub UI anytime
+
+jobs:
+  run-portfolio-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance openpyxl reportlab pandas numpy
+
+      - name: Execute Weekly Portfolio Automation
+        run: |
+          python scripts/weekly_portfolio_automation.py 100000
+
+      - name: Upload Generated Reports & Models as Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-portfolio-reports-${{ github.run_number }}
+          path: |
+            weekly_portfolio_model.xlsx
+            weekly_portfolio_report.pdf
+          retention-days: 90
