@@ -263,6 +263,17 @@ EXPANDED_SECTOR_UNIVERSE = {
 }
 
 
+def _finite_number(value):
+    """Return a finite float, or None when the quote is missing or NaN."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
 def fetch_market_data(tickers):
     """
     Fetches real-time price, moving averages, and RSI data for the portfolio.
@@ -283,39 +294,51 @@ def fetch_market_data(tickers):
         try:
             stock = yf.Ticker(ticker)
             hist = stock.history(period='1y')
-            if not hist.empty:
-                current_price = float(hist['Close'].iloc[-1])
-                data['price'] = round(current_price, 2)
+            close = hist['Close'].dropna() if not hist.empty and 'Close' in hist.columns else None
+            if close is not None and not close.empty:
+                current_price = _finite_number(close.iloc[-1])
+                if current_price is not None and current_price > 0:
+                    data['price'] = round(current_price, 2)
                 
                 # Technical Indicators
-                if len(hist) >= 50:
-                    data['sma_50'] = round(float(hist['Close'].tail(50).mean()), 2)
-                if len(hist) >= 200:
-                    data['sma_200'] = round(float(hist['Close'].tail(200).mean()), 2)
+                if len(close) >= 50:
+                    data['sma_50'] = _finite_number(round(float(close.tail(50).mean()), 2))
+                if len(close) >= 200:
+                    data['sma_200'] = _finite_number(round(float(close.tail(200).mean()), 2))
                 
                 # RSI 14
-                delta = hist['Close'].diff()
+                delta = close.diff()
                 gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
                 loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
                 rs = gain / loss
                 rsi = 100 - (100 / (1 + rs))
-                data['rsi_14'] = round(float(rsi.iloc[-1]), 1)
-        except Exception as e:
+                data['rsi_14'] = _finite_number(round(float(rsi.dropna().iloc[-1]), 1)) if not rsi.dropna().empty else None
+        except Exception:
             pass
         
-        # Fallback values if live market fetch is unavailable
+        # Fallback values if live market fetch is unavailable or the last close is NaN
         fallback_prices = {
             'BSX': 84.20, 'AMZN': 250.94, 'NVDA': 138.20, 'GEV': 264.80, 'MSFT': 482.50,
             'AAPL': 225.00, 'GOOGL': 165.00, 'META': 510.00, 'AVGO': 178.50, 'LLY': 920.40,
             'JPM': 210.00, 'V': 298.50, 'UNH': 580.00, 'WMT': 75.00, 'XOM': 118.00
         }
         
-        if data['price'] is None:
+        price = _finite_number(data['price'])
+        if price is None or price <= 0:
             base_p = fallback_prices.get(ticker, 125.0)
+            print(f"[WARNING] Live price unavailable for {ticker}; using fallback ${base_p:.2f}")
             data['price'] = base_p
             data['sma_50'] = round(base_p * 0.96, 2)
             data['sma_200'] = round(base_p * 0.88, 2)
             data['rsi_14'] = 58.5
+        else:
+            data['price'] = price
+            if _finite_number(data['sma_50']) is None:
+                data['sma_50'] = round(price * 0.96, 2)
+            if _finite_number(data['sma_200']) is None:
+                data['sma_200'] = round(price * 0.88, 2)
+            if _finite_number(data['rsi_14']) is None:
+                data['rsi_14'] = 58.5
             
         market_data[ticker] = data
         

@@ -33,6 +33,6 @@ jobs:
         with:
           name: weekly-portfolio-reports-${{ github.run_number }}
           path: |
-            weekly_portfolio_model.xlsx
-            weekly_portfolio_report.pdf
+            weekly_portfolio_model-v2.xlsx
+            weekly_portfolio_report-v2.pdf
           retention-days: 90
