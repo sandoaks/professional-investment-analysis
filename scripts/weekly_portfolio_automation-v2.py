@@ -32,6 +32,7 @@ import sys
 import os
 import datetime
 import math
+from xml.sax.saxutils import escape
 
 # Import third-party dependencies with graceful fallbacks
 try:
@@ -53,7 +54,7 @@ try:
     from reportlab.lib.units import inch
     from reportlab.lib.colors import HexColor
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether, PageBreak
     )
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
@@ -628,9 +629,23 @@ def export_to_excel(results, summary, universe_rows, output_path="weekly_portfol
     print(f"✅ Excel model saved successfully to: {output_path}")
 
 
-def export_to_pdf(results, summary, output_path="weekly_portfolio_report-v2.pdf"):
+def _pdf_money(value):
+    number = _finite_number(value)
+    if number is None:
+        return "n/a"
+    return f"${number:,.2f}"
+
+
+def _pdf_number(value, digits):
+    number = _finite_number(value)
+    if number is None:
+        return "n/a"
+    return f"{number:.{digits}f}"
+
+
+def export_to_pdf(results, summary, universe_rows, output_path="weekly_portfolio_report-v2.pdf"):
     """
-    Generates a publication-quality PDF summary report.
+    Generates a publication-quality PDF summary report, including the full sector universe.
     """
     if 'reportlab' not in sys.modules:
         print("[Skipped] reportlab not available for PDF export.")
@@ -755,9 +770,64 @@ def export_to_pdf(results, summary, output_path="weekly_portfolio_report-v2.pdf"
     story.append(t_exec)
     story.append(Spacer(1, 15))
     
+    story.append(PageBreak())
     story.append(Paragraph("3. Extended Sector Research Universe", h2_style))
-    story.append(Paragraph("Includes top 10 stocks across all 11 GICS sectors for both NYSE and NASDAQ (220 total companies) tracked in Tab 2 of the accompanying Excel workbook.", body_style))
-    
+    story.append(Paragraph(
+        f"{len(universe_rows)} companies: the top names in each of 11 GICS sectors on NYSE and NASDAQ. "
+        "The same list is on the Sector Research Universe sheet of the Excel workbook.",
+        body_style
+    ))
+    story.append(Spacer(1, 8))
+
+    cell_style = ParagraphStyle(
+        'UniverseCell',
+        parent=body_style,
+        fontSize=7,
+        leading=9,
+    )
+    header_style = ParagraphStyle(
+        'UniverseHeader',
+        parent=cell_style,
+        fontName='Helvetica-Bold',
+        textColor=HexColor('#FFFFFF'),
+    )
+
+    universe_headers = [
+        "Sector", "Exchange", "Ticker", "Company", "Price", "50-Day", "200-Day", "RSI", "Signal"
+    ]
+    universe_data = [[Paragraph(escape(header), header_style) for header in universe_headers]]
+    for row in universe_rows:
+        universe_data.append([
+            Paragraph(escape(str(row['sector'])), cell_style),
+            Paragraph(escape(str(row['exchange'])), cell_style),
+            Paragraph(f"<b>{escape(str(row['ticker']))}</b>", cell_style),
+            Paragraph(escape(str(row['name'])), cell_style),
+            Paragraph(escape(_pdf_money(row['price'])), cell_style),
+            Paragraph(escape(_pdf_money(row['sma_50'])), cell_style),
+            Paragraph(escape(_pdf_money(row['sma_200'])), cell_style),
+            Paragraph(escape(_pdf_number(row['rsi'], 1)), cell_style),
+            Paragraph(escape(str(row['status'])), cell_style),
+        ])
+
+    # Usable width on letter with 54pt margins is 504pt.
+    universe_table = Table(
+        universe_data,
+        colWidths=[70, 46, 38, 100, 46, 46, 48, 30, 80],
+        repeatRows=1,
+    )
+    universe_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), HexColor('#2F5496')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), HexColor('#FFFFFF')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [HexColor('#FFFFFF'), HexColor('#F2F2F2')]),
+        ('GRID', (0, 0), (-1, -1), 0.25, HexColor('#D9D9D9')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 2),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ('LEFTPADDING', (0, 0), (-1, -1), 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+    ]))
+    story.append(universe_table)
+
     doc.build(story)
     print(f"✅ PDF report saved successfully to: {output_path}")
 
@@ -797,6 +867,6 @@ if __name__ == "__main__":
     
     # Export Artifacts
     export_to_excel(results, summary, universe_rows, "weekly_portfolio_model-v2.xlsx")
-    export_to_pdf(results, summary, "weekly_portfolio_report-v2.pdf")
+    export_to_pdf(results, summary, universe_rows, "weekly_portfolio_report-v2.pdf")
     
     print("\n[SUCCESS] Weekly portfolio automation & sector research complete!")
