@@ -401,6 +401,35 @@ def position_metrics(price, weight, budget, buy_zone_low, buy_zone_high, stop_lo
     }
 
 
+def add_attractiveness(price, sma_200, rsi, buy_zone_high, take_profit, rr_ratio, signal):
+    """
+    Rank how attractive a name is to add. Buy-zone names always outrank holds,
+    and holds always outrank take-profits. Inside each group the score uses
+    upside to the target, reward/risk, discount to the buy zone, RSI, and
+    whether price is still above the 200-day average.
+    """
+    action_points = {'BUY / ADD': 70, 'HOLD': 30, 'TAKE PROFIT': 0}.get(signal, 0)
+    upside_pct = ((take_profit - price) / price * 100) if price else 0.0
+    upside_points = max(0.0, min(upside_pct, 25.0)) / 25.0 * 8
+    rr_points = max(0.0, min(rr_ratio, 3.0)) / 3.0 * 8
+    if buy_zone_high and price <= buy_zone_high:
+        discount = (buy_zone_high - price) / buy_zone_high
+        discount_points = max(0.0, min(discount, 0.10)) / 0.10 * 5
+    else:
+        discount_points = 0.0
+    rsi_value = _finite_number(rsi)
+    if rsi_value is None:
+        rsi_points = 0.0
+    else:
+        rsi_points = max(0.0, min(70.0 - rsi_value, 40.0)) / 40.0 * 5
+    trend_points = 4.0 if _finite_number(sma_200) and price >= sma_200 else 0.0
+    score = action_points + upside_points + rr_points + discount_points + rsi_points + trend_points
+    return {
+        'upside_pct': round(upside_pct, 1),
+        'add_score': round(score, 1),
+    }
+
+
 def run_portfolio_analysis(budget=DEFAULT_PORTFOLIO_BUDGET):
     """
     Executes the full portfolio allocation and risk modeling.
@@ -494,6 +523,10 @@ def generate_full_sector_research_data(budget=DEFAULT_PORTFOLIO_BUDGET):
             levels['buy_zone_low'], levels['buy_zone_high'],
             levels['stop_loss'], levels['take_profit'],
         )
+        ranking = add_attractiveness(
+            price, sma_200, rsi, levels['buy_zone_high'], levels['take_profit'],
+            metrics['rr_ratio'], metrics['signal'],
+        )
         universe_rows.append({
             'sector': sector,
             'exchange': exch,
@@ -507,7 +540,17 @@ def generate_full_sector_research_data(budget=DEFAULT_PORTFOLIO_BUDGET):
             'quant_edge': levels['quant_edge'],
             'level_source': levels['level_source'],
             **metrics,
+            **ranking,
         })
+
+    universe_rows.sort(key=lambda row: (
+        -row['add_score'],
+        -row['rr_ratio'],
+        row['rsi_14'] if row['rsi_14'] is not None else 999,
+        row['ticker'],
+    ))
+    for rank, row in enumerate(universe_rows, start=1):
+        row['rank'] = rank
 
     return universe_rows
 
@@ -624,28 +667,30 @@ def export_to_excel(results, summary, universe_rows, output_path="weekly_portfol
     ws2 = wb.create_sheet(title="Sector Research Universe")
     ws2.views.sheetView[0].showGridLines = True
     
-    ws2.merge_cells("A1:Q1")
-    ws2["A1"] = "FULL POSITION ANALYSIS — 220 STOCKS ACROSS 11 GICS SECTORS"
+    ws2.merge_cells("A1:T1")
+    ws2["A1"] = "FULL POSITION ANALYSIS — RANKED FROM MOST ATTRACTIVE TO ADD TO LEAST"
     ws2["A1"].font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
     ws2["A1"].fill = navy_fill
     ws2["A1"].alignment = Alignment(horizontal="center", vertical="center")
 
     buy_count = sum(1 for u in universe_rows if u['signal'] == 'BUY / ADD')
-    ws2.merge_cells("A2:Q2")
+    ws2.merge_cells("A2:T2")
     ws2["A2"] = (
-        "Same fields as the core book. Core tickers keep their hand-set buy zone, stop, and target. "
-        "Every other name uses the 50-day rule: buy zone just under the 50-day average, stop 8% under that zone, "
-        f"target 15% above the 50-day. Shares are an equal slice of the ${summary['budget']:,.0f} research budget "
-        f"({buy_count} names currently in the buy zone), separate from the five-name core weights."
+        "Sorted across every sector by add score. Buy-zone names come first, then holds, then take-profits. "
+        "Inside each group the score uses upside to the target, reward/risk, how far price is under the buy zone, "
+        "RSI (lower is better), and whether price is above the 200-day average. "
+        "Core tickers keep their hand-set levels. Every other name uses the 50-day rule. "
+        f"Shares are an equal slice of the ${summary['budget']:,.0f} research budget "
+        f"({buy_count} names currently in the buy zone)."
     )
     ws2["A2"].alignment = Alignment(wrap_text=True, vertical="center")
-    ws2.row_dimensions[2].height = 36
+    ws2.row_dimensions[2].height = 48
     
     headers2 = [
-        "Sector", "Exchange", "Ticker", "Company Name", "Live Price",
-        "50-Day SMA", "200-Day SMA", "RSI (14)", "Buy Zone", "Stop-Loss",
+        "Rank", "Sector", "Exchange", "Ticker", "Company Name", "Live Price",
+        "50-Day SMA", "200-Day SMA", "RSI (14)", "Upside %", "Buy Zone", "Stop-Loss",
         "Target", "Target Weight", "Shares to Buy", "Capital Invested",
-        "Reward/Risk", "Action Signal", "Level Source",
+        "Reward/Risk", "Action Signal", "Add Score", "Level Source",
     ]
     
     for col_num, h_text in enumerate(headers2, 1):
@@ -654,55 +699,63 @@ def export_to_excel(results, summary, universe_rows, output_path="weekly_portfol
         cell.fill = blue_fill
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
     ws2.row_dimensions[3].height = 30
-    ws2.auto_filter.ref = f"A3:Q{3 + len(universe_rows)}"
+    ws2.auto_filter.ref = f"A3:T{3 + len(universe_rows)}"
     ws2.freeze_panes = "A4"
         
     for idx, u in enumerate(universe_rows, start=4):
-        ws2.cell(row=idx, column=1, value=u['sector'])
-        ws2.cell(row=idx, column=2, value=u['exchange']).alignment = Alignment(horizontal="center")
-        ws2.cell(row=idx, column=3, value=u['ticker']).alignment = Alignment(horizontal="center")
-        ws2.cell(row=idx, column=4, value=u['name'])
+        ws2.cell(row=idx, column=1, value=u['rank']).alignment = Alignment(horizontal="center")
+        ws2.cell(row=idx, column=2, value=u['sector'])
+        ws2.cell(row=idx, column=3, value=u['exchange']).alignment = Alignment(horizontal="center")
+        ws2.cell(row=idx, column=4, value=u['ticker']).alignment = Alignment(horizontal="center")
+        ws2.cell(row=idx, column=5, value=u['name'])
         
-        c5 = ws2.cell(row=idx, column=5, value=u['price'])
-        c5.number_format = '"$"#,##0.00'
-        
-        c6 = ws2.cell(row=idx, column=6, value=u['sma_50'])
+        c6 = ws2.cell(row=idx, column=6, value=u['price'])
         c6.number_format = '"$"#,##0.00'
         
-        c7 = ws2.cell(row=idx, column=7, value=u['sma_200'])
+        c7 = ws2.cell(row=idx, column=7, value=u['sma_50'])
         c7.number_format = '"$"#,##0.00'
         
-        c8 = ws2.cell(row=idx, column=8, value=u['rsi_14'])
-        c8.number_format = '0.0'
-
-        ws2.cell(row=idx, column=9, value=u['buy_zone']).alignment = Alignment(horizontal="center")
-
-        c10 = ws2.cell(row=idx, column=10, value=u['stop_loss'])
-        c10.number_format = '"$"#,##0.00'
-
-        c11 = ws2.cell(row=idx, column=11, value=u['take_profit'])
-        c11.number_format = '"$"#,##0.00'
-
-        c12 = ws2.cell(row=idx, column=12, value=u['weight'])
-        c12.number_format = '0.00%'
-
-        c13 = ws2.cell(row=idx, column=13, value=u['shares'])
-        c13.number_format = '#,##0'
-        c13.fill = output_fill
-
-        c14 = ws2.cell(row=idx, column=14, value=u['actual_invested'])
-        c14.number_format = '"$"#,##0'
-
-        c15 = ws2.cell(row=idx, column=15, value=u['rr_ratio'])
-        c15.number_format = '0.0'
-
-        c16 = ws2.cell(row=idx, column=16, value=u['signal'])
-        c16.alignment = Alignment(horizontal="center")
-        c16.font = font_bold
-
-        ws2.cell(row=idx, column=17, value=u['level_source']).alignment = Alignment(horizontal="center")
+        c8 = ws2.cell(row=idx, column=8, value=u['sma_200'])
+        c8.number_format = '"$"#,##0.00'
         
-        for col_num in range(1, 18):
+        c9 = ws2.cell(row=idx, column=9, value=u['rsi_14'])
+        c9.number_format = '0.0'
+
+        c10 = ws2.cell(row=idx, column=10, value=u['upside_pct'])
+        c10.number_format = '0.0"%"'
+
+        ws2.cell(row=idx, column=11, value=u['buy_zone']).alignment = Alignment(horizontal="center")
+
+        c12 = ws2.cell(row=idx, column=12, value=u['stop_loss'])
+        c12.number_format = '"$"#,##0.00'
+
+        c13 = ws2.cell(row=idx, column=13, value=u['take_profit'])
+        c13.number_format = '"$"#,##0.00'
+
+        c14 = ws2.cell(row=idx, column=14, value=u['weight'])
+        c14.number_format = '0.00%'
+
+        c15 = ws2.cell(row=idx, column=15, value=u['shares'])
+        c15.number_format = '#,##0'
+        c15.fill = output_fill
+
+        c16 = ws2.cell(row=idx, column=16, value=u['actual_invested'])
+        c16.number_format = '"$"#,##0'
+
+        c17 = ws2.cell(row=idx, column=17, value=u['rr_ratio'])
+        c17.number_format = '0.0'
+
+        c18 = ws2.cell(row=idx, column=18, value=u['signal'])
+        c18.alignment = Alignment(horizontal="center")
+        c18.font = font_bold
+
+        c19 = ws2.cell(row=idx, column=19, value=u['add_score'])
+        c19.number_format = '0.0'
+        c19.font = font_bold
+
+        ws2.cell(row=idx, column=20, value=u['level_source']).alignment = Alignment(horizontal="center")
+        
+        for col_num in range(1, 21):
             ws2.cell(row=idx, column=col_num).border = thin_border
             
     for col in ws2.columns:
@@ -858,15 +911,14 @@ def export_to_pdf(results, summary, universe_rows, output_path="weekly_portfolio
     
     story.append(NextPageTemplate('Landscape'))
     story.append(PageBreak())
-    story.append(Paragraph("3. Full Position Analysis — Sector Research Universe", h2_style))
+    story.append(Paragraph("3. Full Position Analysis — Ranked by Attractiveness to Add", h2_style))
     buy_count = sum(1 for row in universe_rows if row['signal'] == 'BUY / ADD')
     story.append(Paragraph(
-        f"{len(universe_rows)} companies, analyzed with the same fields as the five core holdings: "
-        "price, moving averages, RSI, buy zone, stop, target, weight, shares, capital, reward/risk, and signal. "
-        "Core tickers keep their hand-set levels. Every other name uses the 50-day rule "
-        "(buy zone just under the 50-day average, stop 8% under that zone, target 15% above the 50-day). "
-        f"Shares are an equal slice of the research budget. {buy_count} names are currently in the buy zone. "
-        "The same table is on the Sector Research Universe sheet of the Excel workbook.",
+        f"{len(universe_rows)} companies, sorted from most attractive to add to least, across every sector. "
+        f"Buy-zone names come first ({buy_count}), then holds, then take-profits. "
+        "Inside each group the add score uses upside to the target, reward/risk, how far price is under the buy zone, "
+        "RSI, and whether price is above the 200-day average. "
+        "Share counts and weights are on the Sector Research Universe sheet of the Excel workbook.",
         body_style
     ))
     story.append(Spacer(1, 8))
@@ -885,35 +937,34 @@ def export_to_pdf(results, summary, universe_rows, output_path="weekly_portfolio
     )
 
     universe_headers = [
-        "Sector", "Exch", "Ticker", "Company", "Price", "50-Day", "200-Day", "RSI",
-        "Buy Zone", "Stop", "Target", "Weight", "Shares", "Invested", "R:R", "Signal", "Levels",
+        "Rank", "Ticker", "Company", "Sector", "Exch", "Price", "50-Day", "200-Day", "RSI",
+        "Upside", "R:R", "Buy Zone", "Stop", "Target", "Signal", "Score",
     ]
     universe_data = [[Paragraph(escape(header), header_style) for header in universe_headers]]
     for row in universe_rows:
         universe_data.append([
-            Paragraph(escape(str(row['sector'])), cell_style),
-            Paragraph(escape(str(row['exchange'])), cell_style),
+            Paragraph(escape(str(row['rank'])), cell_style),
             Paragraph(f"<b>{escape(str(row['ticker']))}</b>", cell_style),
             Paragraph(escape(str(row['name'])), cell_style),
+            Paragraph(escape(str(row['sector'])), cell_style),
+            Paragraph(escape(str(row['exchange'])), cell_style),
             Paragraph(escape(_pdf_money(row['price'])), cell_style),
             Paragraph(escape(_pdf_money(row['sma_50'])), cell_style),
             Paragraph(escape(_pdf_money(row['sma_200'])), cell_style),
             Paragraph(escape(_pdf_number(row['rsi_14'], 1)), cell_style),
+            Paragraph(escape(f"{row['upside_pct']:+.1f}%"), cell_style),
+            Paragraph(escape(_pdf_number(row['rr_ratio'], 1)), cell_style),
             Paragraph(escape(str(row['buy_zone'])), cell_style),
             Paragraph(escape(_pdf_money(row['stop_loss'])), cell_style),
             Paragraph(escape(_pdf_money(row['take_profit'])), cell_style),
-            Paragraph(escape(f"{row['weight'] * 100:.2f}%"), cell_style),
-            Paragraph(escape(str(row['shares'])), cell_style),
-            Paragraph(escape(_pdf_money(row['actual_invested'])), cell_style),
-            Paragraph(escape(_pdf_number(row['rr_ratio'], 1)), cell_style),
             Paragraph(f"<b>{escape(str(row['signal']))}</b>", cell_style),
-            Paragraph(escape(str(row['level_source'])), cell_style),
+            Paragraph(f"<b>{escape(_pdf_number(row['add_score'], 1))}</b>", cell_style),
         ])
 
-    # Landscape letter with 36pt margins leaves 720pt. Leave a few points of slack.
+    # Landscape letter with 36pt margins leaves 720pt.
     universe_table = Table(
         universe_data,
-        colWidths=[58, 32, 32, 78, 40, 38, 40, 24, 62, 36, 38, 32, 32, 44, 22, 52, 40],
+        colWidths=[22, 34, 88, 54, 28, 36, 36, 38, 22, 32, 22, 62, 34, 36, 48, 28],
         repeatRows=1,
     )
     universe_table.setStyle(TableStyle([
