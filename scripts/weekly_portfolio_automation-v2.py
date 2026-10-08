@@ -50,11 +50,12 @@ except ImportError:
     print("[WARNING] openpyxl not installed. Excel output will be skipped.")
 
 try:
-    from reportlab.lib.pagesizes import LETTER
+    from reportlab.lib.pagesizes import LETTER, landscape
     from reportlab.lib.units import inch
     from reportlab.lib.colors import HexColor
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether, PageBreak
+        BaseDocTemplate, Frame, PageTemplate, NextPageTemplate,
+        Paragraph, Spacer, Table, TableStyle, KeepTogether, PageBreak
     )
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
@@ -346,6 +347,60 @@ def fetch_market_data(tickers):
     return market_data
 
 
+def derive_trade_levels(price, sma_50):
+    """
+    Position levels for names without a hand-set core-book plan.
+    Buy zone is a band just under the 50-day average, the stop is 8% under
+    that zone, and the target is 15% above the 50-day average.
+    """
+    anchor = _finite_number(sma_50) or price
+    buy_low = round(anchor * 0.97, 2)
+    buy_high = round(anchor * 0.99, 2)
+    stop = round(buy_low * 0.92, 2)
+    if stop >= price:
+        stop = round(price * 0.92, 2)
+    return {
+        'buy_zone_low': buy_low,
+        'buy_zone_high': buy_high,
+        'stop_loss': stop,
+        'take_profit': round(anchor * 1.15, 2),
+        'dcf_target': None,
+        'quant_edge': '50-day SMA buy zone; stop 8% under that zone; target 15% above the 50-day.',
+        'level_source': '50-day rule',
+    }
+
+
+def position_metrics(price, weight, budget, buy_zone_low, buy_zone_high, stop_loss, take_profit):
+    """Same sizing, risk, and signal rules used for the five core holdings."""
+    allocated_cash = budget * weight
+    shares = math.floor(allocated_cash / price) if price > 0 else 0
+    actual_invested = round(shares * price, 2)
+    downside_per_share = max(0.0, price - stop_loss)
+    upside_per_share = max(0.0, take_profit - price)
+    dollar_risk = round(shares * downside_per_share, 2)
+    dollar_upside = round(shares * upside_per_share, 2)
+    rr_ratio = round(upside_per_share / downside_per_share, 1) if downside_per_share > 0 else 0.0
+    if price <= buy_zone_high:
+        signal = 'BUY / ADD'
+    elif price >= take_profit * 0.95:
+        signal = 'TAKE PROFIT'
+    else:
+        signal = 'HOLD'
+    return {
+        'buy_zone': f"${buy_zone_low:.2f} - ${buy_zone_high:.2f}",
+        'stop_loss': stop_loss,
+        'take_profit': take_profit,
+        'weight': weight,
+        'allocated_cash': allocated_cash,
+        'shares': shares,
+        'actual_invested': actual_invested,
+        'dollar_risk': dollar_risk,
+        'dollar_upside': dollar_upside,
+        'rr_ratio': rr_ratio,
+        'signal': signal,
+    }
+
+
 def run_portfolio_analysis(budget=DEFAULT_PORTFOLIO_BUDGET):
     """
     Executes the full portfolio allocation and risk modeling.
@@ -360,53 +415,27 @@ def run_portfolio_analysis(budget=DEFAULT_PORTFOLIO_BUDGET):
     
     for ticker, info in HIGH_CONVICTION_STOCKS.items():
         price = market[ticker]['price']
-        weight = info['target_weight']
-        allocated_cash = budget * weight
-        shares = math.floor(allocated_cash / price)
-        actual_invested = round(shares * price, 2)
-        
-        # Risk & Reward
-        downside_per_share = max(0.0, price - info['stop_loss'])
-        upside_per_share = max(0.0, info['take_profit'] - price)
-        
-        dollar_risk = round(shares * downside_per_share, 2)
-        dollar_upside = round(shares * upside_per_share, 2)
-        
-        rr_ratio = round(upside_per_share / downside_per_share, 1) if downside_per_share > 0 else 0.0
-        
-        # Automated Execution Signal
-        if price <= info['buy_zone_high']:
-            signal = 'BUY / ADD'
-        elif price >= info['take_profit'] * 0.95:
-            signal = 'TAKE PROFIT'
-        else:
-            signal = 'HOLD'
-            
-        total_allocated += actual_invested
-        total_max_risk += dollar_risk
-        total_target_upside += dollar_upside
+        metrics = position_metrics(
+            price, info['target_weight'], budget,
+            info['buy_zone_low'], info['buy_zone_high'], info['stop_loss'], info['take_profit'],
+        )
+        total_allocated += metrics['actual_invested']
+        total_max_risk += metrics['dollar_risk']
+        total_target_upside += metrics['dollar_upside']
         
         results.append({
             'ticker': ticker,
             'name': info['name'],
             'sector': info['sector'],
+            'exchange': '',
             'price': price,
             'sma_50': market[ticker]['sma_50'],
             'sma_200': market[ticker]['sma_200'],
             'rsi_14': market[ticker]['rsi_14'],
-            'buy_zone': f"${info['buy_zone_low']:.2f} - ${info['buy_zone_high']:.2f}",
-            'stop_loss': info['stop_loss'],
-            'take_profit': info['take_profit'],
             'dcf_target': info['dcf_target'],
-            'weight': weight,
-            'allocated_cash': allocated_cash,
-            'shares': shares,
-            'actual_invested': actual_invested,
-            'dollar_risk': dollar_risk,
-            'dollar_upside': dollar_upside,
-            'rr_ratio': rr_ratio,
-            'signal': signal,
-            'quant_edge': info['quant_edge']
+            'quant_edge': info['quant_edge'],
+            'level_source': 'Core book',
+            **metrics,
         })
         
     summary = {
@@ -422,50 +451,64 @@ def run_portfolio_analysis(budget=DEFAULT_PORTFOLIO_BUDGET):
     return results, summary
 
 
-def generate_full_sector_research_data():
+def generate_full_sector_research_data(budget=DEFAULT_PORTFOLIO_BUDGET):
     """
-    Compiles market data for all 220 stocks in the extended sector universe.
+    Runs the same position analysis as the core book on every universe name.
+    Core holdings keep their hand-set buy zone, stop, and target. Every other
+    name uses the 50-day rule. Share counts use an equal slice of the budget,
+    separate from the five-name core weights.
     """
-    all_universe_tickers = []
+    catalog = []
     for sector, exch_map in EXPANDED_SECTOR_UNIVERSE.items():
         for exch, pairs in exch_map.items():
             for tkr, name in pairs:
-                all_universe_tickers.append(tkr)
-                
-    market_universe = fetch_market_data(all_universe_tickers)
-    
+                catalog.append((sector, exch, tkr, name))
+
+    market_universe = fetch_market_data([tkr for _, _, tkr, _ in catalog])
+    weight = 1.0 / len(catalog) if catalog else 0.0
+
     universe_rows = []
-    for sector, exch_map in EXPANDED_SECTOR_UNIVERSE.items():
-        for exch, pairs in exch_map.items():
-            for tkr, name in pairs:
-                m_data = market_universe.get(tkr, {})
-                price = m_data.get('price', 100.0)
-                sma_50 = m_data.get('sma_50', price * 0.96)
-                sma_200 = m_data.get('sma_200', price * 0.88)
-                rsi = m_data.get('rsi_14', 55.0)
-                
-                # Signal heuristic
-                if rsi < 40:
-                    status = "OVERSOLD / BUY"
-                elif rsi > 70:
-                    status = "OVERBOUGHT / TRIM"
-                elif price > sma_50 and sma_50 > sma_200:
-                    status = "BULLISH TREND"
-                else:
-                    status = "NEUTRAL"
-                    
-                universe_rows.append({
-                    'sector': sector,
-                    'exchange': exch,
-                    'ticker': tkr,
-                    'name': name,
-                    'price': price,
-                    'sma_50': sma_50,
-                    'sma_200': sma_200,
-                    'rsi': rsi,
-                    'status': status
-                })
-                
+    for sector, exch, tkr, name in catalog:
+        m_data = market_universe.get(tkr, {})
+        price = m_data.get('price', 100.0)
+        sma_50 = m_data.get('sma_50', price * 0.96)
+        sma_200 = m_data.get('sma_200', price * 0.88)
+        rsi = m_data.get('rsi_14', 55.0)
+
+        if tkr in HIGH_CONVICTION_STOCKS:
+            info = HIGH_CONVICTION_STOCKS[tkr]
+            levels = {
+                'buy_zone_low': info['buy_zone_low'],
+                'buy_zone_high': info['buy_zone_high'],
+                'stop_loss': info['stop_loss'],
+                'take_profit': info['take_profit'],
+                'dcf_target': info['dcf_target'],
+                'quant_edge': info['quant_edge'],
+                'level_source': 'Core book',
+            }
+        else:
+            levels = derive_trade_levels(price, sma_50)
+
+        metrics = position_metrics(
+            price, weight, budget,
+            levels['buy_zone_low'], levels['buy_zone_high'],
+            levels['stop_loss'], levels['take_profit'],
+        )
+        universe_rows.append({
+            'sector': sector,
+            'exchange': exch,
+            'ticker': tkr,
+            'name': name,
+            'price': price,
+            'sma_50': sma_50,
+            'sma_200': sma_200,
+            'rsi_14': rsi,
+            'dcf_target': levels['dcf_target'],
+            'quant_edge': levels['quant_edge'],
+            'level_source': levels['level_source'],
+            **metrics,
+        })
+
     return universe_rows
 
 
@@ -577,23 +620,42 @@ def export_to_excel(results, summary, universe_rows, output_path="weekly_portfol
         col_letter = get_column_letter(col[0].column)
         ws1.column_dimensions[col_letter].width = max(max_len + 3, 12)
         
-    # TAB 2: Full Sector Research Universe (220 Stocks)
+    # TAB 2: Full position analysis for every universe name
     ws2 = wb.create_sheet(title="Sector Research Universe")
     ws2.views.sheetView[0].showGridLines = True
     
-    ws2.merge_cells("A1:I1")
-    ws2["A1"] = "EXTENDED SECTOR RESEARCH UNIVERSE (220 STOCKS ACROSS 11 GICS SECTORS)"
+    ws2.merge_cells("A1:Q1")
+    ws2["A1"] = "FULL POSITION ANALYSIS — 220 STOCKS ACROSS 11 GICS SECTORS"
     ws2["A1"].font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
     ws2["A1"].fill = navy_fill
     ws2["A1"].alignment = Alignment(horizontal="center", vertical="center")
+
+    buy_count = sum(1 for u in universe_rows if u['signal'] == 'BUY / ADD')
+    ws2.merge_cells("A2:Q2")
+    ws2["A2"] = (
+        "Same fields as the core book. Core tickers keep their hand-set buy zone, stop, and target. "
+        "Every other name uses the 50-day rule: buy zone just under the 50-day average, stop 8% under that zone, "
+        f"target 15% above the 50-day. Shares are an equal slice of the ${summary['budget']:,.0f} research budget "
+        f"({buy_count} names currently in the buy zone), separate from the five-name core weights."
+    )
+    ws2["A2"].alignment = Alignment(wrap_text=True, vertical="center")
+    ws2.row_dimensions[2].height = 36
     
-    headers2 = ["Sector", "Exchange", "Ticker", "Company Name", "Price ($)", "50-Day SMA ($)", "200-Day SMA ($)", "RSI (14)", "Technical Signal"]
+    headers2 = [
+        "Sector", "Exchange", "Ticker", "Company Name", "Live Price",
+        "50-Day SMA", "200-Day SMA", "RSI (14)", "Buy Zone", "Stop-Loss",
+        "Target", "Target Weight", "Shares to Buy", "Capital Invested",
+        "Reward/Risk", "Action Signal", "Level Source",
+    ]
     
     for col_num, h_text in enumerate(headers2, 1):
         cell = ws2.cell(row=3, column=col_num, value=h_text)
         cell.font = font_bold_white
         cell.fill = blue_fill
-        cell.alignment = Alignment(horizontal="center")
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+    ws2.row_dimensions[3].height = 30
+    ws2.auto_filter.ref = f"A3:Q{3 + len(universe_rows)}"
+    ws2.freeze_panes = "A4"
         
     for idx, u in enumerate(universe_rows, start=4):
         ws2.cell(row=idx, column=1, value=u['sector'])
@@ -610,20 +672,43 @@ def export_to_excel(results, summary, universe_rows, output_path="weekly_portfol
         c7 = ws2.cell(row=idx, column=7, value=u['sma_200'])
         c7.number_format = '"$"#,##0.00'
         
-        c8 = ws2.cell(row=idx, column=8, value=u['rsi'])
+        c8 = ws2.cell(row=idx, column=8, value=u['rsi_14'])
         c8.number_format = '0.0'
+
+        ws2.cell(row=idx, column=9, value=u['buy_zone']).alignment = Alignment(horizontal="center")
+
+        c10 = ws2.cell(row=idx, column=10, value=u['stop_loss'])
+        c10.number_format = '"$"#,##0.00'
+
+        c11 = ws2.cell(row=idx, column=11, value=u['take_profit'])
+        c11.number_format = '"$"#,##0.00'
+
+        c12 = ws2.cell(row=idx, column=12, value=u['weight'])
+        c12.number_format = '0.00%'
+
+        c13 = ws2.cell(row=idx, column=13, value=u['shares'])
+        c13.number_format = '#,##0'
+        c13.fill = output_fill
+
+        c14 = ws2.cell(row=idx, column=14, value=u['actual_invested'])
+        c14.number_format = '"$"#,##0'
+
+        c15 = ws2.cell(row=idx, column=15, value=u['rr_ratio'])
+        c15.number_format = '0.0'
+
+        c16 = ws2.cell(row=idx, column=16, value=u['signal'])
+        c16.alignment = Alignment(horizontal="center")
+        c16.font = font_bold
+
+        ws2.cell(row=idx, column=17, value=u['level_source']).alignment = Alignment(horizontal="center")
         
-        c9 = ws2.cell(row=idx, column=9, value=u['status'])
-        c9.alignment = Alignment(horizontal="center")
-        c9.font = font_bold
-        
-        for col_num in range(1, 10):
+        for col_num in range(1, 18):
             ws2.cell(row=idx, column=col_num).border = thin_border
             
     for col in ws2.columns:
         max_len = max(len(str(cell.value or '')) for cell in col)
         col_letter = get_column_letter(col[0].column)
-        ws2.column_dimensions[col_letter].width = max(max_len + 3, 12)
+        ws2.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 36)
         
     wb.save(output_path)
     print(f"✅ Excel model saved successfully to: {output_path}")
@@ -651,12 +736,13 @@ def export_to_pdf(results, summary, universe_rows, output_path="weekly_portfolio
         print("[Skipped] reportlab not available for PDF export.")
         return
         
-    doc = SimpleDocTemplate(
-        output_path,
-        pagesize=LETTER,
-        leftMargin=54, rightMargin=54,
-        topMargin=54, bottomMargin=54
-    )
+    doc = BaseDocTemplate(output_path)
+    portrait_frame = Frame(54, 54, LETTER[0] - 108, LETTER[1] - 108, id='portrait', showBoundary=0)
+    landscape_frame = Frame(36, 36, landscape(LETTER)[0] - 72, landscape(LETTER)[1] - 72, id='landscape', showBoundary=0)
+    doc.addPageTemplates([
+        PageTemplate(id='Portrait', frames=[portrait_frame], pagesize=LETTER),
+        PageTemplate(id='Landscape', frames=[landscape_frame], pagesize=landscape(LETTER)),
+    ])
     
     styles = getSampleStyleSheet()
     
@@ -770,11 +856,17 @@ def export_to_pdf(results, summary, universe_rows, output_path="weekly_portfolio
     story.append(t_exec)
     story.append(Spacer(1, 15))
     
+    story.append(NextPageTemplate('Landscape'))
     story.append(PageBreak())
-    story.append(Paragraph("3. Extended Sector Research Universe", h2_style))
+    story.append(Paragraph("3. Full Position Analysis — Sector Research Universe", h2_style))
+    buy_count = sum(1 for row in universe_rows if row['signal'] == 'BUY / ADD')
     story.append(Paragraph(
-        f"{len(universe_rows)} companies: the top names in each of 11 GICS sectors on NYSE and NASDAQ. "
-        "The same list is on the Sector Research Universe sheet of the Excel workbook.",
+        f"{len(universe_rows)} companies, analyzed with the same fields as the five core holdings: "
+        "price, moving averages, RSI, buy zone, stop, target, weight, shares, capital, reward/risk, and signal. "
+        "Core tickers keep their hand-set levels. Every other name uses the 50-day rule "
+        "(buy zone just under the 50-day average, stop 8% under that zone, target 15% above the 50-day). "
+        f"Shares are an equal slice of the research budget. {buy_count} names are currently in the buy zone. "
+        "The same table is on the Sector Research Universe sheet of the Excel workbook.",
         body_style
     ))
     story.append(Spacer(1, 8))
@@ -782,8 +874,8 @@ def export_to_pdf(results, summary, universe_rows, output_path="weekly_portfolio
     cell_style = ParagraphStyle(
         'UniverseCell',
         parent=body_style,
-        fontSize=7,
-        leading=9,
+        fontSize=6.5,
+        leading=8,
     )
     header_style = ParagraphStyle(
         'UniverseHeader',
@@ -793,7 +885,8 @@ def export_to_pdf(results, summary, universe_rows, output_path="weekly_portfolio
     )
 
     universe_headers = [
-        "Sector", "Exchange", "Ticker", "Company", "Price", "50-Day", "200-Day", "RSI", "Signal"
+        "Sector", "Exch", "Ticker", "Company", "Price", "50-Day", "200-Day", "RSI",
+        "Buy Zone", "Stop", "Target", "Weight", "Shares", "Invested", "R:R", "Signal", "Levels",
     ]
     universe_data = [[Paragraph(escape(header), header_style) for header in universe_headers]]
     for row in universe_rows:
@@ -805,14 +898,22 @@ def export_to_pdf(results, summary, universe_rows, output_path="weekly_portfolio
             Paragraph(escape(_pdf_money(row['price'])), cell_style),
             Paragraph(escape(_pdf_money(row['sma_50'])), cell_style),
             Paragraph(escape(_pdf_money(row['sma_200'])), cell_style),
-            Paragraph(escape(_pdf_number(row['rsi'], 1)), cell_style),
-            Paragraph(escape(str(row['status'])), cell_style),
+            Paragraph(escape(_pdf_number(row['rsi_14'], 1)), cell_style),
+            Paragraph(escape(str(row['buy_zone'])), cell_style),
+            Paragraph(escape(_pdf_money(row['stop_loss'])), cell_style),
+            Paragraph(escape(_pdf_money(row['take_profit'])), cell_style),
+            Paragraph(escape(f"{row['weight'] * 100:.2f}%"), cell_style),
+            Paragraph(escape(str(row['shares'])), cell_style),
+            Paragraph(escape(_pdf_money(row['actual_invested'])), cell_style),
+            Paragraph(escape(_pdf_number(row['rr_ratio'], 1)), cell_style),
+            Paragraph(f"<b>{escape(str(row['signal']))}</b>", cell_style),
+            Paragraph(escape(str(row['level_source'])), cell_style),
         ])
 
-    # Usable width on letter with 54pt margins is 504pt.
+    # Landscape letter with 36pt margins leaves 720pt. Leave a few points of slack.
     universe_table = Table(
         universe_data,
-        colWidths=[70, 46, 38, 100, 46, 46, 48, 30, 80],
+        colWidths=[58, 32, 32, 78, 40, 38, 40, 24, 62, 36, 38, 32, 32, 44, 22, 52, 40],
         repeatRows=1,
     )
     universe_table.setStyle(TableStyle([
@@ -850,7 +951,7 @@ if __name__ == "__main__":
     print(f"Target Investment Budget: ${budget:,.2f}\n")
     
     results, summary = run_portfolio_analysis(budget)
-    universe_rows = generate_full_sector_research_data()
+    universe_rows = generate_full_sector_research_data(budget)
     
     # Console Summary Output
     print("-" * 70)
