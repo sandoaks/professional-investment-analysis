@@ -28,10 +28,12 @@ Scheduling Instructions:
 ===============================================================================
 """
 
+import csv
 import sys
 import os
 import datetime
 import math
+from pathlib import Path
 from xml.sax.saxutils import escape
 
 # Import third-party dependencies with graceful fallbacks
@@ -480,13 +482,44 @@ def run_portfolio_analysis(budget=DEFAULT_PORTFOLIO_BUDGET):
     return results, summary
 
 
+def load_fool_ranks(inputs_dir=None):
+    """
+    Read the latest Motley Fool ranking CSV in inputs/.
+    Rank 1 is their top name. Returns a ticker-to-rank map and the file name.
+    """
+    folder = Path(inputs_dir) if inputs_dir else Path(__file__).resolve().parent.parent / "inputs"
+    files = sorted(folder.glob("tmf-rankings*.csv")) if folder.is_dir() else []
+    if not files:
+        print("[WARNING] No Motley Fool ranking CSV found in inputs/")
+        return {}, None
+
+    path = files[-1]
+    ranks = {}
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        for record in csv.DictReader(handle):
+            symbol = (record.get("Symbol") or "").strip().upper().replace(".", "-")
+            rank_text = (record.get("Rank") or "").strip()
+            if not symbol or not rank_text:
+                continue
+            try:
+                rank = int(float(rank_text))
+            except ValueError:
+                continue
+            if symbol not in ranks or rank < ranks[symbol]:
+                ranks[symbol] = rank
+    print(f"Loaded {len(ranks)} Motley Fool ranks from {path.name}")
+    return ranks, path.name
+
+
 def generate_full_sector_research_data(budget=DEFAULT_PORTFOLIO_BUDGET):
     """
     Runs the same position analysis as the core book on every universe name.
     Core holdings keep their hand-set buy zone, stop, and target. Every other
     name uses the 50-day rule. Share counts use an equal slice of the budget,
-    separate from the five-name core weights.
+    separate from the five-name core weights. Motley Fool ranks are attached
+    when the ticker appears in inputs/tmf-rankings*.csv.
     """
+    fool_ranks, fool_file = load_fool_ranks()
     catalog = []
     for sector, exch_map in EXPANDED_SECTOR_UNIVERSE.items():
         for exch, pairs in exch_map.items():
@@ -539,6 +572,8 @@ def generate_full_sector_research_data(budget=DEFAULT_PORTFOLIO_BUDGET):
             'dcf_target': levels['dcf_target'],
             'quant_edge': levels['quant_edge'],
             'level_source': levels['level_source'],
+            'fool_rank': fool_ranks.get(tkr.upper().replace(".", "-")),
+            'fool_file': fool_file,
             **metrics,
             **ranking,
         })
@@ -667,27 +702,35 @@ def export_to_excel(results, summary, universe_rows, output_path="weekly_portfol
     ws2 = wb.create_sheet(title="Sector Research Universe")
     ws2.views.sheetView[0].showGridLines = True
     
-    ws2.merge_cells("A1:T1")
+    ws2.merge_cells("A1:U1")
     ws2["A1"] = "FULL POSITION ANALYSIS — RANKED FROM MOST ATTRACTIVE TO ADD TO LEAST"
     ws2["A1"].font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
     ws2["A1"].fill = navy_fill
     ws2["A1"].alignment = Alignment(horizontal="center", vertical="center")
 
     buy_count = sum(1 for u in universe_rows if u['signal'] == 'BUY / ADD')
-    ws2.merge_cells("A2:T2")
+    fool_matched = sum(1 for u in universe_rows if u.get('fool_rank') is not None)
+    fool_file = next((u.get('fool_file') for u in universe_rows if u.get('fool_file')), None)
+    fool_note = (
+        f"Fool Rank is Motley Fool's list rank from {fool_file} (1 is their top name); "
+        f"{fool_matched} of these names are on that list. A blank Fool Rank means the ticker is not on it."
+        if fool_file else
+        "No Motley Fool ranking file was found in inputs/."
+    )
+    ws2.merge_cells("A2:U2")
     ws2["A2"] = (
         "Sorted across every sector by add score. Buy-zone names come first, then holds, then take-profits. "
         "Inside each group the score uses upside to the target, reward/risk, how far price is under the buy zone, "
         "RSI (lower is better), and whether price is above the 200-day average. "
         "Core tickers keep their hand-set levels. Every other name uses the 50-day rule. "
         f"Shares are an equal slice of the ${summary['budget']:,.0f} research budget "
-        f"({buy_count} names currently in the buy zone)."
+        f"({buy_count} names currently in the buy zone). {fool_note}"
     )
     ws2["A2"].alignment = Alignment(wrap_text=True, vertical="center")
-    ws2.row_dimensions[2].height = 48
+    ws2.row_dimensions[2].height = 64
     
     headers2 = [
-        "Rank", "Sector", "Exchange", "Ticker", "Company Name", "Live Price",
+        "Rank", "Fool Rank", "Sector", "Exchange", "Ticker", "Company Name", "Live Price",
         "50-Day SMA", "200-Day SMA", "RSI (14)", "Upside %", "Buy Zone", "Stop-Loss",
         "Target", "Target Weight", "Shares to Buy", "Capital Invested",
         "Reward/Risk", "Action Signal", "Add Score", "Level Source",
@@ -699,63 +742,67 @@ def export_to_excel(results, summary, universe_rows, output_path="weekly_portfol
         cell.fill = blue_fill
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
     ws2.row_dimensions[3].height = 30
-    ws2.auto_filter.ref = f"A3:T{3 + len(universe_rows)}"
+    ws2.auto_filter.ref = f"A3:U{3 + len(universe_rows)}"
     ws2.freeze_panes = "A4"
         
     for idx, u in enumerate(universe_rows, start=4):
         ws2.cell(row=idx, column=1, value=u['rank']).alignment = Alignment(horizontal="center")
-        ws2.cell(row=idx, column=2, value=u['sector'])
-        ws2.cell(row=idx, column=3, value=u['exchange']).alignment = Alignment(horizontal="center")
-        ws2.cell(row=idx, column=4, value=u['ticker']).alignment = Alignment(horizontal="center")
-        ws2.cell(row=idx, column=5, value=u['name'])
+        fool_cell = ws2.cell(row=idx, column=2, value=u.get('fool_rank'))
+        fool_cell.alignment = Alignment(horizontal="center")
+        if u.get('fool_rank') is not None:
+            fool_cell.number_format = '0'
+        ws2.cell(row=idx, column=3, value=u['sector'])
+        ws2.cell(row=idx, column=4, value=u['exchange']).alignment = Alignment(horizontal="center")
+        ws2.cell(row=idx, column=5, value=u['ticker']).alignment = Alignment(horizontal="center")
+        ws2.cell(row=idx, column=6, value=u['name'])
         
-        c6 = ws2.cell(row=idx, column=6, value=u['price'])
-        c6.number_format = '"$"#,##0.00'
-        
-        c7 = ws2.cell(row=idx, column=7, value=u['sma_50'])
+        c7 = ws2.cell(row=idx, column=7, value=u['price'])
         c7.number_format = '"$"#,##0.00'
         
-        c8 = ws2.cell(row=idx, column=8, value=u['sma_200'])
+        c8 = ws2.cell(row=idx, column=8, value=u['sma_50'])
         c8.number_format = '"$"#,##0.00'
         
-        c9 = ws2.cell(row=idx, column=9, value=u['rsi_14'])
-        c9.number_format = '0.0'
+        c9 = ws2.cell(row=idx, column=9, value=u['sma_200'])
+        c9.number_format = '"$"#,##0.00'
+        
+        c10 = ws2.cell(row=idx, column=10, value=u['rsi_14'])
+        c10.number_format = '0.0'
 
-        c10 = ws2.cell(row=idx, column=10, value=u['upside_pct'])
-        c10.number_format = '0.0"%"'
+        c11 = ws2.cell(row=idx, column=11, value=u['upside_pct'])
+        c11.number_format = '0.0"%"'
 
-        ws2.cell(row=idx, column=11, value=u['buy_zone']).alignment = Alignment(horizontal="center")
+        ws2.cell(row=idx, column=12, value=u['buy_zone']).alignment = Alignment(horizontal="center")
 
-        c12 = ws2.cell(row=idx, column=12, value=u['stop_loss'])
-        c12.number_format = '"$"#,##0.00'
-
-        c13 = ws2.cell(row=idx, column=13, value=u['take_profit'])
+        c13 = ws2.cell(row=idx, column=13, value=u['stop_loss'])
         c13.number_format = '"$"#,##0.00'
 
-        c14 = ws2.cell(row=idx, column=14, value=u['weight'])
-        c14.number_format = '0.00%'
+        c14 = ws2.cell(row=idx, column=14, value=u['take_profit'])
+        c14.number_format = '"$"#,##0.00'
 
-        c15 = ws2.cell(row=idx, column=15, value=u['shares'])
-        c15.number_format = '#,##0'
-        c15.fill = output_fill
+        c15 = ws2.cell(row=idx, column=15, value=u['weight'])
+        c15.number_format = '0.00%'
 
-        c16 = ws2.cell(row=idx, column=16, value=u['actual_invested'])
-        c16.number_format = '"$"#,##0'
+        c16 = ws2.cell(row=idx, column=16, value=u['shares'])
+        c16.number_format = '#,##0'
+        c16.fill = output_fill
 
-        c17 = ws2.cell(row=idx, column=17, value=u['rr_ratio'])
-        c17.number_format = '0.0'
+        c17 = ws2.cell(row=idx, column=17, value=u['actual_invested'])
+        c17.number_format = '"$"#,##0'
 
-        c18 = ws2.cell(row=idx, column=18, value=u['signal'])
-        c18.alignment = Alignment(horizontal="center")
-        c18.font = font_bold
+        c18 = ws2.cell(row=idx, column=18, value=u['rr_ratio'])
+        c18.number_format = '0.0'
 
-        c19 = ws2.cell(row=idx, column=19, value=u['add_score'])
-        c19.number_format = '0.0'
+        c19 = ws2.cell(row=idx, column=19, value=u['signal'])
+        c19.alignment = Alignment(horizontal="center")
         c19.font = font_bold
 
-        ws2.cell(row=idx, column=20, value=u['level_source']).alignment = Alignment(horizontal="center")
+        c20 = ws2.cell(row=idx, column=20, value=u['add_score'])
+        c20.number_format = '0.0'
+        c20.font = font_bold
+
+        ws2.cell(row=idx, column=21, value=u['level_source']).alignment = Alignment(horizontal="center")
         
-        for col_num in range(1, 21):
+        for col_num in range(1, 22):
             ws2.cell(row=idx, column=col_num).border = thin_border
             
     for col in ws2.columns:
@@ -913,11 +960,20 @@ def export_to_pdf(results, summary, universe_rows, output_path="weekly_portfolio
     story.append(PageBreak())
     story.append(Paragraph("3. Full Position Analysis — Ranked by Attractiveness to Add", h2_style))
     buy_count = sum(1 for row in universe_rows if row['signal'] == 'BUY / ADD')
+    fool_matched = sum(1 for row in universe_rows if row.get('fool_rank') is not None)
+    fool_file = next((row.get('fool_file') for row in universe_rows if row.get('fool_file')), None)
+    fool_sentence = (
+        f"Fool is Motley Fool's rank from {fool_file}, where 1 is their top name ({fool_matched} names overlap). "
+        "A dash means that ticker is not on their list. "
+        if fool_file else
+        "No Motley Fool ranking file was found in inputs/. "
+    )
     story.append(Paragraph(
         f"{len(universe_rows)} companies, sorted from most attractive to add to least, across every sector. "
         f"Buy-zone names come first ({buy_count}), then holds, then take-profits. "
         "Inside each group the add score uses upside to the target, reward/risk, how far price is under the buy zone, "
         "RSI, and whether price is above the 200-day average. "
+        + fool_sentence +
         "Share counts and weights are on the Sector Research Universe sheet of the Excel workbook.",
         body_style
     ))
@@ -937,13 +993,15 @@ def export_to_pdf(results, summary, universe_rows, output_path="weekly_portfolio
     )
 
     universe_headers = [
-        "Rank", "Ticker", "Company", "Sector", "Exch", "Price", "50-Day", "200-Day", "RSI",
+        "Rank", "Fool", "Ticker", "Company", "Sector", "Exch", "Price", "50-Day", "200-Day", "RSI",
         "Upside", "R:R", "Buy Zone", "Stop", "Target", "Signal", "Score",
     ]
     universe_data = [[Paragraph(escape(header), header_style) for header in universe_headers]]
     for row in universe_rows:
+        fool_rank = row.get('fool_rank')
         universe_data.append([
             Paragraph(escape(str(row['rank'])), cell_style),
+            Paragraph(escape(str(fool_rank) if fool_rank is not None else "—"), cell_style),
             Paragraph(f"<b>{escape(str(row['ticker']))}</b>", cell_style),
             Paragraph(escape(str(row['name'])), cell_style),
             Paragraph(escape(str(row['sector'])), cell_style),
@@ -964,7 +1022,7 @@ def export_to_pdf(results, summary, universe_rows, output_path="weekly_portfolio
     # Landscape letter with 36pt margins leaves 720pt.
     universe_table = Table(
         universe_data,
-        colWidths=[22, 34, 88, 54, 28, 36, 36, 38, 22, 32, 22, 62, 34, 36, 48, 28],
+        colWidths=[20, 26, 32, 78, 50, 26, 34, 34, 36, 20, 30, 20, 58, 32, 34, 46, 26],
         repeatRows=1,
     )
     universe_table.setStyle(TableStyle([
